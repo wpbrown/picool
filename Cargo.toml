@@ -1,0 +1,17 @@
+[package]
+name = "picool"
+version = "0.1.0"
+authors = ["Will Brown <opensource@rebeagle.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0"
+rppal = "0.11.3"
+cfg-if = "1.0.0"
+
+[features]
+demo-mode = []
+
+[profile.release]
+opt-level = 1
+overflow-checks = true
