@@ -59,15 +59,26 @@ impl World for RealWorld {
                 return Ok(None);
             }
         }
+        let since_epoch = sec_since_epoch();
         data.context("Failed reading last off transition storage.")
             .and_then(|d| d.parse().context("Failed parsing stored last off transition."))
-            .map(|d| Some(Duration::from_secs(d)))
+            .map(|last_transit_sec_since_epoch| {
+                Some(
+                    since_epoch
+                        .checked_sub(Duration::from_secs(last_transit_sec_since_epoch))
+                        .unwrap_or_default(),
+                )
+            })
     }
 
     fn persist_last_off_transition(&mut self) -> Result<()> {
-        let since_epoch = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Now is never before the epoch.");
+        let since_epoch = sec_since_epoch();
         fs::write(&self.last_off_persist_path, since_epoch.as_secs().to_string()).map_err(|e| anyhow!(e))
     }
+}
+
+fn sec_since_epoch() -> Duration {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Now is never before the epoch.")
 }
