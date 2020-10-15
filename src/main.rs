@@ -1,5 +1,7 @@
 use anyhow::Result;
 use std::{env, mem::replace, ops::Range, path::PathBuf, time::Duration};
+use log::*;
+use strum_macros::Display;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "demo-mode")] {
@@ -25,7 +27,7 @@ trait World {
     fn persist_last_off_transition(&mut self) -> Result<()>;
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Display)]
 enum State {
     InitiallyOff,
     MinimumIntervalOn,
@@ -35,7 +37,8 @@ enum State {
 }
 
 fn main() {
-    println!("Starting picool control.");
+    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    info!("Starting picool control.");
     let args: Vec<String> = env::args().collect();
 
     cfg_if::cfg_if! {
@@ -43,8 +46,8 @@ fn main() {
             let world = DemoWorld::new();
         } else {
             let world = RealWorld::new(
-                PathBuf::from(&args[0]),
-                args[1].parse().expect("NEED VALIDATION"),
+                PathBuf::from(&args[1]),
+                args[2].parse().expect("NEED VALIDATION"),
             )
             .expect("NEED VALIDATION");
         }
@@ -64,13 +67,14 @@ fn init(world: &impl World) -> State {
             None => State::InitiallyOff,
         },
         Err(e) => {
-            println!("Failed get last off transition: {:?}", e);
+            warn!("Failed get last off transition: {:?}", e);
             State::MinimumIntervalOff
         }
     }
 }
 
 fn run(initial_state: State, mut world: impl World) {
+    info!("Initial state: {}", initial_state);
     let mut state = initial_state;
 
     loop {
@@ -82,6 +86,7 @@ fn run(initial_state: State, mut world: impl World) {
             State::InitiallyOff => None,
         };
         if let Some(duration) = sleep_duration {
+            trace!("Sleeping: {:?}", duration);
             world.sleep(duration);
         }
 
@@ -89,22 +94,29 @@ fn run(initial_state: State, mut world: impl World) {
             match world.get_temperature() {
                 Ok(t) => break t,
                 Err(e) => {
-                    println!("Could not read temperature. {:?}", e);
+                    error!("Could not read temperature. {:?}", e);
                     world.sleep(Duration::from_secs(10));
                     continue;
                 }
             }
         };
+        trace!("Read temperature: {:.2}C {:.2}F", temperature, c_to_f(temperature));
 
         let new_state = transition(state, temperature);
         let previous_state = replace(&mut state, new_state);
 
+        if previous_state != new_state {
+            info!("State changed: {} -> {}", previous_state, new_state);
+        }
+
         if previous_state.is_on() != new_state.is_on() {
+            debug!("Updating power state: {}", new_state.is_on());
             world.set_power_state(new_state.is_on());
 
             if new_state.is_off() {
+                debug!("Persisting last off transition.");
                 if let Err(e) = world.persist_last_off_transition() {
-                    println!("Failed to persist last off transition. {:?}", e);
+                    warn!("Failed to persist last off transition. {:?}", e);
                 }
             }
         }
@@ -146,4 +158,8 @@ fn is_too_cold(temperature: f32) -> bool {
 
 fn is_too_hot(temperature: f32) -> bool {
     temperature > TARGET_RANGE.end
+}
+
+fn c_to_f(c: f32) -> f32 {
+    (c * 9.0 / 5.0) + 32.0
 }

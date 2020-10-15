@@ -1,4 +1,4 @@
-use crate::World;
+use crate::{World, c_to_f};
 use anyhow::{anyhow, Context, Result};
 use std::{
     cell::Cell, cmp::min, ffi::OsString, fs, io::ErrorKind, path::PathBuf, thread::sleep, time::Duration,
@@ -73,8 +73,4 @@ impl World for DemoWorld {
         self.log("PERSIST_LAST_OFF");
         Ok(())
     }
-}
-
-fn c_to_f(c: f32) -> f32 {
-    (c * 9.0 / 5.0) + 32.0
 }

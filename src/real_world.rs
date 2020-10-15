@@ -38,7 +38,11 @@ impl World for RealWorld {
     fn get_temperature(&self) -> Result<f32> {
         fs::read_to_string(&self.temperature_sensor_path)
             .context("Reading temperature file failed.")
-            .and_then(|s| s.parse().context("Parsing temperature value failed."))
+            .and_then(|s| {
+                s.trim().parse::<i32>()
+                    .context("Parsing temperature value failed.")
+                    .map(|i| i as f32 / 1000.0)
+            })
     }
 
     fn set_power_state(&mut self, state: bool) {
