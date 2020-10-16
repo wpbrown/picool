@@ -1,4 +1,4 @@
-use crate::World;
+use crate::{World, RestoredPowerState};
 use anyhow::{anyhow, Context, Result};
 use rppal::gpio::{Gpio, OutputPin};
 use std::{ffi::OsString, fs, io, path::PathBuf, thread::sleep, time::Duration, time::SystemTime};
@@ -56,18 +56,21 @@ impl World for RealWorld {
         sleep(duration)
     }
 
-    fn since_last_off_transition(&self) -> Result<Option<Duration>> {
+    fn restore_power_state(&self) -> Result<RestoredPowerState> {
+        if self.power_state.is_set_high() {
+            return Ok(RestoredPowerState::CurrentlyOn);
+        }
         let data = fs::read_to_string(&self.last_off_persist_path);
         if let Err(e) = &data {
             if e.kind() == io::ErrorKind::NotFound {
-                return Ok(None);
+                return Ok(RestoredPowerState::OffForUnknownDuration);
             }
         }
         let since_epoch = sec_since_epoch();
         data.context("Failed reading last off transition storage.")
             .and_then(|d| d.parse().context("Failed parsing stored last off transition."))
             .map(|last_transit_sec_since_epoch| {
-                Some(
+                RestoredPowerState::OffFor(
                     since_epoch
                         .checked_sub(Duration::from_secs(last_transit_sec_since_epoch))
                         .unwrap_or_default(),

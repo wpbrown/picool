@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::{env, mem::replace, ops::Range, path::PathBuf, time::Duration};
 use log::*;
+use std::{env, mem::replace, ops::Range, path::PathBuf, time::Duration};
 use strum_macros::Display;
 
 cfg_if::cfg_if! {
@@ -23,7 +23,7 @@ trait World {
     fn set_power_state(&mut self, state: bool);
     fn sleep(&self, duration: Duration);
 
-    fn since_last_off_transition(&self) -> Result<Option<Duration>>;
+    fn restore_power_state(&self) -> Result<RestoredPowerState>;
     fn persist_last_off_transition(&mut self) -> Result<()>;
 }
 
@@ -34,6 +34,13 @@ enum State {
     MinimumIntervalOff,
     On,
     Off,
+}
+
+#[derive(Eq, PartialEq, Copy, Clone, Display)]
+enum RestoredPowerState {
+    CurrentlyOn,
+    OffFor(Duration),
+    OffForUnknownDuration,
 }
 
 fn main() {
@@ -58,13 +65,17 @@ fn main() {
 }
 
 fn init(world: &impl World) -> State {
-    match world.since_last_off_transition() {
-        Ok(maybe_duration) => match maybe_duration {
-            Some(duration) => match duration > MINIMUM_OFF_DURATION {
-                true => State::InitiallyOff,
-                false => State::MinimumIntervalOff,
-            },
-            None => State::InitiallyOff,
+    match world.restore_power_state() {
+        Ok(restored_state) => {
+            debug!("Restored state: {}", restored_state);
+            match restored_state {
+                RestoredPowerState::CurrentlyOn => State::MinimumIntervalOn,
+                RestoredPowerState::OffFor(duration) => match duration > MINIMUM_OFF_DURATION {
+                    true => State::InitiallyOff,
+                    false => State::MinimumIntervalOff,
+                },
+                RestoredPowerState::OffForUnknownDuration => State::MinimumIntervalOff,
+            }
         },
         Err(e) => {
             warn!("Failed get last off transition: {:?}", e);

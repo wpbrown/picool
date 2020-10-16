@@ -1,4 +1,4 @@
-use crate::{World, c_to_f};
+use crate::{World, RestoredPowerState, c_to_f};
 use anyhow::{anyhow, Context, Result};
 use std::{
     cell::Cell, cmp::min, ffi::OsString, fs, io::ErrorKind, path::PathBuf, thread::sleep, time::Duration,
@@ -64,9 +64,9 @@ impl World for DemoWorld {
         }
     }
 
-    fn since_last_off_transition(&self) -> Result<Option<Duration>> {
+    fn restore_power_state(&self) -> Result<RestoredPowerState> {
         self.log("GET_SINCE_LAST_OFF");
-        Ok(None)
+        Ok(RestoredPowerState::OffForUnknownDuration)
     }
 
     fn persist_last_off_transition(&mut self) -> Result<()> {
