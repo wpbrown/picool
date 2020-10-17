@@ -18,7 +18,9 @@
 
 * Install Telgraf
   * Add a `resource_id` to attach metrics in `telegraf.conf` copy it to `/etc/telegraf`.
-  * Fill in `azuremonitor.env` and copy it to `/etc/telegraf`. The service principal needs "Monitoring Metrics Publisher" role on the resource in `resource_id` above.
+  * Fill in `azuremonitor.env` and copy it to `/etc/telegraf`. 
+    * The service principal needs "Monitoring Metrics Publisher" role on the resource in `resource_id` above.
+    * Run `chmod 600 azuremonitor.env`.
   * Copy `10-azuremonitor.conf` into new directory `/etc/systemd/system/telegraf.service.d`.
   * Run `sudo systemctl enable telegraf`, `sudo systemctl start telegraf`.
 * Install Picool
