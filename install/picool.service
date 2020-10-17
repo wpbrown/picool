@@ -1,0 +1,11 @@
+[Unit]
+Description=picool refrigerator
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/picool.env
+ExecStart=/opt/picool/picool $REFRIGERATOR_SENSOR_PATH $RELAY_GPIO_PIN
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
