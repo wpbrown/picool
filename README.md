@@ -1,3 +1,10 @@
+# Picool
+
+A Raspberry Pi Zero controller for a refrigerator compressor. Also includes configuration for Telegraf to send data to Azure Monitor Metrics (which can be displayed with Grafana or Azure Monitor Workbooks).
+
+![screenshot of grafana temperature dashboard](./.github/grafana.png)
+
+![screenshot of systemd status output](./.github/systemd.png)
 
 # Setup Pi Zero W Hardware
 
