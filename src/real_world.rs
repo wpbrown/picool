@@ -1,7 +1,7 @@
 use crate::{World, RestoredPowerState};
 use anyhow::{anyhow, Context, Result};
 use rppal::gpio::{Gpio, OutputPin};
-use std::{ffi::OsString, fs, io, path::PathBuf, thread::sleep, time::Duration, time::SystemTime};
+use std::{ffi::OsString, fs, io, path::PathBuf, thread::sleep, time::Duration, time::Instant, time::SystemTime};
 
 const LAST_OFF_TRANSITION_PERSIST_BASE_PATH: &str = "/var/lib/picool";
 const LAST_OFF_TRANSITION_PERSIST_FILE_PREFIX: &str = "last_off_";
@@ -54,6 +54,10 @@ impl World for RealWorld {
 
     fn sleep(&self, duration: Duration) {
         sleep(duration)
+    }
+
+    fn now(&self) -> Instant {
+        Instant::now()
     }
 
     fn restore_power_state(&self) -> Result<RestoredPowerState> {

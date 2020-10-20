@@ -2,16 +2,20 @@ use crate::{World, RestoredPowerState, c_to_f};
 use anyhow::{anyhow, Context, Result};
 use std::{
     cell::Cell, cmp::min, ffi::OsString, fs, io::ErrorKind, path::PathBuf, thread::sleep, time::Duration,
-    time::Instant, time::SystemTime,
+    time::Instant, time::SystemTime
 };
 
-const HEAT_DEGC_PER_SEC: f32 = 0.00163139325;
-const COOL_DEGC_PER_SEC: f32 = -0.00106762063;
-const TIME_WARP: f32 = 100.0;
+const HEAT_DEGC_PER_SEC: f32 = 0.00263139325;
+const COOL_DEGC_PER_SEC: f32 = -0.00206762063;
+const TIME_WARP: f32 = 200.0;
+const LATENT_COOL: Duration = Duration::from_secs(300);
 
 pub struct DemoWorld {
     current_temp: Cell<f32>,
     power_state: bool,
+    fake_time: Cell<Instant>,
+    cycles: u32,
+    latent_cooling: Cell<Duration>,
 }
 
 impl DemoWorld {
@@ -19,6 +23,9 @@ impl DemoWorld {
         Self {
             current_temp: Cell::new(4.6),
             power_state: false,
+            fake_time: Cell::new(Instant::now()),
+            cycles: 0,
+            latent_cooling: Cell::new(Duration::from_secs(0)),
         }
     }
 
@@ -45,23 +52,37 @@ impl World for DemoWorld {
     fn set_power_state(&mut self, state: bool) {
         self.log(&format!("SET_POWERSTATE: {}", state));
         self.power_state = state;
+        if state == false {
+            self.cycles += 1;
+            if self.cycles == 5 {
+                panic!("End of the world.");
+            }
+            self.latent_cooling.set(LATENT_COOL);
+        } else {
+            self.latent_cooling.set(Duration::from_secs(0));
+        }
     }
 
     fn sleep(&self, duration: Duration) {
         self.log(&format!("SLEEP: {} sec", duration.as_secs()));
-        let mut warped_duration = Duration::from_secs_f32(duration.as_secs_f32() / TIME_WARP);
-        while warped_duration.as_millis() != 0 {
-            let sleep_for = min(Duration::from_secs(1), warped_duration);
-            sleep(sleep_for);
-            let change_temp = match self.power_state {
-                true => COOL_DEGC_PER_SEC,
-                false => HEAT_DEGC_PER_SEC,
-            };
-            self.current_temp
-                .set(self.current_temp.get() + sleep_for.as_secs_f32() * TIME_WARP * change_temp);
-            self.log("SLEEPING...");
-            warped_duration = warped_duration.checked_sub(sleep_for).unwrap_or_default();
+        self.fake_time.set(self.fake_time.get() + duration);
+        let change_temp = match self.power_state {
+            true => COOL_DEGC_PER_SEC,
+            false => HEAT_DEGC_PER_SEC,
+        };
+        let mut duration = duration;
+        if self.latent_cooling.get() > Duration::from_secs(0) {
+            let cool_duration = min(duration, self.latent_cooling.get());
+            //if duration >= self.latent_cooling.get() {
+            self.current_temp.set(self.current_temp.get() + cool_duration.as_secs_f32() * COOL_DEGC_PER_SEC);
+            duration -= cool_duration;
+            self.latent_cooling.set(self.latent_cooling.get() - cool_duration);
         }
+        self.current_temp.set(self.current_temp.get() + duration.as_secs_f32() * change_temp);
+    }
+
+    fn now(&self) -> Instant {
+        self.fake_time.get()
     }
 
     fn restore_power_state(&self) -> Result<RestoredPowerState> {
