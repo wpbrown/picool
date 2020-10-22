@@ -54,7 +54,7 @@ impl World for DemoWorld {
         self.power_state = state;
         if state == false {
             self.cycles += 1;
-            if self.cycles == 5 {
+            if self.cycles == 10 {
                 panic!("End of the world.");
             }
             self.latent_cooling.set(LATENT_COOL);
