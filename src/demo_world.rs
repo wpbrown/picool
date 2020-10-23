@@ -1,8 +1,8 @@
-use crate::{World, RestoredPowerState, c_to_f};
-use anyhow::{anyhow, Context, Result};
+use crate::{c_to_f, RestoredPowerState, World, WorldState};
+use anyhow::Result;
 use std::{
     cell::Cell, cmp::min, ffi::OsString, fs, io::ErrorKind, path::PathBuf, thread::sleep, time::Duration,
-    time::Instant, time::SystemTime
+    time::Instant, time::SystemTime,
 };
 
 const HEAT_DEGC_PER_SEC: f32 = 0.00263139325;
@@ -73,25 +73,35 @@ impl World for DemoWorld {
         let mut duration = duration;
         if self.latent_cooling.get() > Duration::from_secs(0) {
             let cool_duration = min(duration, self.latent_cooling.get());
-            //if duration >= self.latent_cooling.get() {
-            self.current_temp.set(self.current_temp.get() + cool_duration.as_secs_f32() * COOL_DEGC_PER_SEC);
+            self.current_temp
+                .set(self.current_temp.get() + cool_duration.as_secs_f32() * COOL_DEGC_PER_SEC);
             duration -= cool_duration;
             self.latent_cooling.set(self.latent_cooling.get() - cool_duration);
         }
-        self.current_temp.set(self.current_temp.get() + duration.as_secs_f32() * change_temp);
+        self.current_temp
+            .set(self.current_temp.get() + duration.as_secs_f32() * change_temp);
     }
 
     fn now(&self) -> Instant {
         self.fake_time.get()
     }
 
-    fn restore_power_state(&self) -> Result<RestoredPowerState> {
+    fn restore_state(&self) -> Result<WorldState> {
         self.log("GET_SINCE_LAST_OFF");
-        Ok(RestoredPowerState::OffForUnknownDuration)
+        Ok(WorldState {
+            power_state: RestoredPowerState::OffForUnknownDuration,
+            heating_compensation: 0.0,
+            cooling_compensation: 0.5,
+        })
     }
 
     fn persist_last_off_transition(&mut self) -> Result<()> {
         self.log("PERSIST_LAST_OFF");
+        Ok(())
+    }
+
+    fn persist_compensation(&mut self, _cooling: f32, _heating: f32) -> Result<()> {
+        self.log("PERSIST_COMPENSATION");
         Ok(())
     }
 }

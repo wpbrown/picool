@@ -1,6 +1,8 @@
 use anyhow::Result;
 use log::*;
-use std::{num::FpCategory, collections::VecDeque, env, mem::replace, ops::Range, path::PathBuf, time::Duration, time::Instant};
+use std::{
+    collections::VecDeque, env, mem::replace, num::FpCategory, ops::Range, path::PathBuf, time::Duration, time::Instant,
+};
 use strum_macros::Display;
 
 cfg_if::cfg_if! {
@@ -25,8 +27,9 @@ trait World {
     fn sleep(&self, duration: Duration);
     fn now(&self) -> Instant;
 
-    fn restore_power_state(&self) -> Result<RestoredPowerState>;
+    fn restore_state(&self) -> Result<WorldState>;
     fn persist_last_off_transition(&mut self) -> Result<()>;
+    fn persist_compensation(&mut self, cooling: f32, heating: f32) -> Result<()>;
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Display)]
@@ -43,6 +46,12 @@ enum RestoredPowerState {
     CurrentlyOn,
     OffFor(Duration),
     OffForUnknownDuration,
+}
+
+struct WorldState {
+    power_state: RestoredPowerState,
+    heating_compensation: f32,
+    cooling_compensation: f32,
 }
 
 fn main() {
@@ -62,33 +71,17 @@ fn main() {
         }
     }
 
-    let initial_state = init(&world);
-    run(initial_state, (0.0,0.0), world);
+    let restored_world_state = world.restore_state();
+    let seed_compensation = restored_world_state
+        .as_ref()
+        .map(|s| (s.cooling_compensation, s.heating_compensation))
+        .unwrap_or_default();
+    let initial_state = determine_initial_state(restored_world_state.map(|s| s.power_state), world.now());
+    run(initial_state, seed_compensation, world);
 }
 
 // Pure w.r.t. World
-fn init(world: &impl World) -> State {
-    match world.restore_power_state() {
-        Ok(restored_state) => {
-            debug!("Restored state: {}", restored_state);
-            match restored_state {
-                RestoredPowerState::CurrentlyOn => State::MinimumIntervalOn(world.now()),
-                RestoredPowerState::OffFor(duration) => match duration > MINIMUM_OFF_DURATION {
-                    true => State::InitiallyOff,
-                    false => State::MinimumIntervalOff(world.now() - duration),
-                },
-                RestoredPowerState::OffForUnknownDuration => State::MinimumIntervalOff(world.now()),
-            }
-        },
-        Err(e) => {
-            warn!("Failed get last off transition: {:?}", e);
-            State::MinimumIntervalOff(world.now())
-        }
-    }
-}
-
-// Pure w.r.t. World
-fn run(initial_state: State, initial_compensation: (f32,f32), mut world: impl World) {
+fn run(initial_state: State, initial_compensation: (f32, f32), mut world: impl World) {
     info!("Initial state: {}", initial_state);
     let mut state = initial_state;
 
@@ -121,7 +114,7 @@ fn run(initial_state: State, initial_compensation: (f32,f32), mut world: impl Wo
         trace!("Read temperature: {}", format_c_and_f(temperature));
         extremes.push(temperature);
 
-        let transition_thresholds = low_threshold .. high_threshold;
+        let transition_thresholds = low_threshold..high_threshold;
         let new_state = transition(state, temperature, transition_thresholds, world.now());
         let previous_state = replace(&mut state, new_state);
 
@@ -132,39 +125,68 @@ fn run(initial_state: State, initial_compensation: (f32,f32), mut world: impl Wo
         if previous_state.is_on() != new_state.is_on() {
             debug!("Updating power state: {}", new_state.is_on());
             world.set_power_state(new_state.is_on());
+            if new_state.is_off() {
+                // On -> Off
+                debug!("Persisting last off transition.");
+                if let Err(e) = world.persist_last_off_transition() {
+                    warn!("Failed to persist last off transition. {:?}", e);
+                }
+            }
+
             cycles += 1;
 
             if cycles > 2 {
+                let mut updated: bool = false;
                 if new_state.is_off() {
                     // On -> Off
-                    debug!("Persisting last off transition.");
-                    if let Err(e) = world.persist_last_off_transition() {
-                        warn!("Failed to persist last off transition. {:?}", e);
-                    }
-    
                     if let Some(max_temp_during_on_cycle) = extremes.max() {
-                        trace!("Max temp seen during on cycle: {}", format_c_and_f(max_temp_during_on_cycle));
+                        trace!(
+                            "Max temp seen during on cycle: {}",
+                            format_c_and_f(max_temp_during_on_cycle)
+                        );
                         high_compensator.push_observation(max_temp_during_on_cycle);
                         if high_compensator.is_capped() {
                             warn!("Heating compenstation is capped at maximum compensation.");
                         }
                         let old_threshold = replace(&mut high_threshold, high_compensator.get_threshold());
                         if old_threshold != high_threshold {
-                            debug!("Updated heating threshold: {} -> {} (target: {})",  format_c_and_f(old_threshold), format_c_and_f(high_threshold), format_c_and_f(TARGET_RANGE.end));
+                            debug!(
+                                "Updated heating threshold: {} -> {} (target: {})",
+                                format_c_and_f(old_threshold),
+                                format_c_and_f(high_threshold),
+                                format_c_and_f(TARGET_RANGE.end)
+                            );
+                            updated = true;
                         }
                     }
                 } else {
                     // Off -> On
                     if let Some(min_temp_during_off_cycle) = extremes.min() {
-                        trace!("Min temp seen during off cycle: {}", format_c_and_f(min_temp_during_off_cycle));
+                        trace!(
+                            "Min temp seen during off cycle: {}",
+                            format_c_and_f(min_temp_during_off_cycle)
+                        );
                         low_compensator.push_observation(min_temp_during_off_cycle);
                         let old_threshold = replace(&mut low_threshold, low_compensator.get_threshold());
                         if low_compensator.is_capped() {
                             warn!("Cooling compenstation is capped at maximum compensation.");
                         }
                         if old_threshold != low_threshold {
-                            debug!("Updated cooling threshold: {} -> {} (target: {})",  format_c_and_f(old_threshold), format_c_and_f(low_threshold), format_c_and_f(TARGET_RANGE.start));
+                            debug!(
+                                "Updated cooling threshold: {} -> {} (target: {})",
+                                format_c_and_f(old_threshold),
+                                format_c_and_f(low_threshold),
+                                format_c_and_f(TARGET_RANGE.start)
+                            );
+                            updated = true;
                         }
+                    }
+                }
+                if updated {
+                    if let Err(e) = world
+                        .persist_compensation(low_compensator.get_compensation(), high_compensator.get_compensation())
+                    {
+                        warn!("Failed to persist compensations. {:?}", e);
                     }
                 }
                 extremes.reset();
@@ -190,6 +212,27 @@ impl State {
 }
 
 // Pure
+fn determine_initial_state(maybe_restored_state: Result<RestoredPowerState>, now: Instant) -> State {
+    match maybe_restored_state {
+        Ok(restored_state) => {
+            debug!("Restored state: {}", restored_state);
+            match restored_state {
+                RestoredPowerState::CurrentlyOn => State::MinimumIntervalOn(now),
+                RestoredPowerState::OffFor(duration) => match duration > MINIMUM_OFF_DURATION {
+                    true => State::InitiallyOff,
+                    false => State::MinimumIntervalOff(now - duration),
+                },
+                RestoredPowerState::OffForUnknownDuration => State::MinimumIntervalOff(now),
+            }
+        }
+        Err(e) => {
+            warn!("Failed get last off transition: {:?}", e);
+            State::MinimumIntervalOff(now)
+        }
+    }
+}
+
+// Pure
 fn transition(initial: State, current_temperature: f32, threshold_range: Range<f32>, now: Instant) -> State {
     match initial {
         State::MinimumIntervalOn(s) if now - s < MINIMUM_ON_DURATION => State::MinimumIntervalOn(s),
@@ -198,10 +241,12 @@ fn transition(initial: State, current_temperature: f32, threshold_range: Range<f
             true => State::MinimumIntervalOff(now),
             false => State::On,
         },
-        State::Off | State::InitiallyOff | State::MinimumIntervalOff(_) => match is_too_hot(current_temperature, threshold_range.end) {
-            true => State::MinimumIntervalOn(now),
-            false => State::Off,
-        },
+        State::Off | State::InitiallyOff | State::MinimumIntervalOff(_) => {
+            match is_too_hot(current_temperature, threshold_range.end) {
+                true => State::MinimumIntervalOn(now),
+                false => State::Off,
+            }
+        }
     }
 }
 
@@ -279,7 +324,7 @@ impl Compensator {
     pub fn get_threshold(&self) -> f32 {
         self.target + self.get_compensation()
     }
-    
+
     pub fn push_observation(&mut self, value: f32) {
         const MAX_OBSERVATIONS: u8 = 10;
         const MIN_UPDATE: f32 = 0.01;
@@ -303,9 +348,7 @@ impl Compensator {
                 let m2 = sorted_observations[len / 2];
                 (m1 + m2) / 2.0
             }
-            len => {
-                sorted_observations[len / 2]
-            }
+            len => sorted_observations[len / 2],
         };
         let update = median_delta - self.compensation;
 
@@ -347,14 +390,14 @@ impl ExtremeTracker {
     pub fn min(&self) -> Option<f32> {
         match self.measured {
             true => Some(self.min),
-            false => None
+            false => None,
         }
     }
 
     pub fn max(&self) -> Option<f32> {
         match self.measured {
             true => Some(self.max),
-            false => None
+            false => None,
         }
     }
 }
