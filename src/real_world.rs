@@ -15,7 +15,7 @@ use std::{
 
 const PICOOL_PERSIST_BASE_PATH: &str = "/var/lib/picool";
 const LAST_OFF_TRANSITION_PERSIST_FILE_PREFIX: &str = "last_off_";
-const COMPENSATION_PERSIST_FILE_PREFIX: &str = "last_off_";
+const COMPENSATION_PERSIST_FILE_PREFIX: &str = "comp_";
 
 pub struct RealWorld {
     temperature_sensor_path: PathBuf,

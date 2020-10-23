@@ -15,7 +15,7 @@ cfg_if::cfg_if! {
     }
 }
 
-const TARGET_RANGE: Range<f32> = 1.3..4.4;
+const TARGET_RANGE: Range<f32> = 0.8333333..4.333333; // 33.5 to 39.8F
 const MAX_COMPENSATION: f32 = 1.6;
 const MINIMUM_ON_DURATION: Duration = Duration::from_secs(60 * 2);
 const MINIMUM_OFF_DURATION: Duration = Duration::from_secs(60 * 8);
@@ -82,7 +82,7 @@ fn main() {
 
 // Pure w.r.t. World
 fn run(initial_state: State, initial_compensation: (f32, f32), mut world: impl World) {
-    info!("Initial state: {}", initial_state);
+    info!("Initial state: {} Cooling Comp: {}C Heating Comp: {}C", initial_state, initial_compensation.0, initial_compensation.1);
     let mut state = initial_state;
 
     let (seed_low_compensation, seed_high_compensation) = initial_compensation;
