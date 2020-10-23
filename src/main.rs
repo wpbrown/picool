@@ -15,7 +15,7 @@ cfg_if::cfg_if! {
     }
 }
 
-const TARGET_RANGE: Range<f32> = 0.8333333..4.333333; // 33.5 to 39.8F
+const TARGET_RANGE: Range<f32> = 0.555556..4.333333; // 33.0 to 39.8F
 const MAX_COMPENSATION: f32 = 1.6;
 const MINIMUM_ON_DURATION: Duration = Duration::from_secs(60 * 2);
 const MINIMUM_OFF_DURATION: Duration = Duration::from_secs(60 * 8);
