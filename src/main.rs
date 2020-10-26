@@ -326,7 +326,7 @@ impl Compensator {
     }
 
     pub fn push_observation(&mut self, value: f32) {
-        const MAX_OBSERVATIONS: u8 = 10;
+        const MAX_OBSERVATIONS: u8 = 4;
         const MIN_UPDATE: f32 = 0.01;
 
         if value.classify() == FpCategory::Nan {
