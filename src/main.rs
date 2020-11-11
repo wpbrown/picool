@@ -16,6 +16,7 @@ cfg_if::cfg_if! {
 }
 
 const TARGET_RANGE: Range<f32> = 0.555556..4.333333; // 33.0 to 39.8F
+const LOW_COMPENSATION_RESET: f32 = 4.444444; // 40.0F
 const MAX_COMPENSATION: f32 = 1.888888;
 const MINIMUM_ON_DURATION: Duration = Duration::from_secs(60 * 2);
 const MINIMUM_OFF_DURATION: Duration = Duration::from_secs(60 * 8);
@@ -82,7 +83,10 @@ fn main() {
 
 // Pure w.r.t. World
 fn run(initial_state: State, initial_compensation: (f32, f32), mut world: impl World) {
-    info!("Initial state: {} Cooling Comp: {}C Heating Comp: {}C", initial_state, initial_compensation.0, initial_compensation.1);
+    info!(
+        "Initial state: {} Cooling Comp: {}C Heating Comp: {}C",
+        initial_state, initial_compensation.0, initial_compensation.1
+    );
     let mut state = initial_state;
 
     let (seed_low_compensation, seed_high_compensation) = initial_compensation;
@@ -113,6 +117,23 @@ fn run(initial_state: State, initial_compensation: (f32, f32), mut world: impl W
         };
         trace!("Read temperature: {}", format_c_and_f(temperature));
         extremes.push(temperature);
+
+        if temperature > LOW_COMPENSATION_RESET {
+            info!(
+                "Temperature {} exceeded low compensation reset threshold",
+                format_c_and_f(temperature)
+            );
+            if !low_compensator.is_zero() {
+                info!("Low compensator and threshold reset");
+                low_compensator.reset();
+                low_threshold = low_compensator.get_threshold();
+                if let Err(e) =
+                    world.persist_compensation(low_compensator.get_compensation(), high_compensator.get_compensation())
+                {
+                    warn!("Failed to persist compensations. {:?}", e);
+                }
+            }
+        }
 
         let transition_thresholds = low_threshold..high_threshold;
         let new_state = transition(state, temperature, transition_thresholds, world.now());
@@ -323,6 +344,15 @@ impl Compensator {
 
     pub fn get_threshold(&self) -> f32 {
         self.target + self.get_compensation()
+    }
+
+    pub fn reset(&mut self) {
+        self.compensation = 0.0;
+        self.observations.clear();
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.compensation.classify() == FpCategory::Zero
     }
 
     pub fn push_observation(&mut self, value: f32) {
